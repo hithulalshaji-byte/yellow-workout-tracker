@@ -20,6 +20,8 @@ const DEFAULT_EXERCISES = [
 
 // App State
 let state = {
+  currentUser: null,
+  users: {}, // Map of username -> password
   profile: {
     name: "",
     age: "",
@@ -42,18 +44,20 @@ let activeChartData = null;
 
 // Initialize the Application
 document.addEventListener("DOMContentLoaded", () => {
-  loadData();
+  loadAuthRegistry();
+  setupAuthEvents();
   setupEventListeners();
   setupTabSystem();
   setupExerciseAutocomplete();
   
-  // Renders
-  renderProfile();
-  renderWelcomePanel();
-  renderActiveWorkout();
-  renderHistory();
-  populateChartSelectors();
-  
+  // Check if already logged in
+  const loggedInUser = localStorage.getItem("puretrack_current_user");
+  if (loggedInUser && state.users[loggedInUser]) {
+    loginUser(loggedInUser);
+  } else {
+    showAuthScreen();
+  }
+
   // Handle Canvas resize
   window.addEventListener('resize', () => {
     if (activeChartData && document.getElementById('tab-history').classList.contains('active')) {
@@ -62,41 +66,196 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Load from Local Storage
-function loadData() {
-  const profileData = localStorage.getItem("puretrack_profile");
-  if (profileData) {
-    state.profile = JSON.parse(profileData);
-  }
-
-  const historyData = localStorage.getItem("puretrack_history");
-  if (historyData) {
-    state.history = JSON.parse(historyData);
-  }
-
-  const activeData = localStorage.getItem("puretrack_active");
-  if (activeData) {
-    state.activeWorkout = JSON.parse(activeData);
-    // Sync date to today if it's empty
-    if (!state.activeWorkout.date) {
-      state.activeWorkout.date = new Date().toISOString().split('T')[0];
-    }
-  } else {
-    resetActiveWorkoutState();
-  }
-
-  const customExData = localStorage.getItem("puretrack_custom_exercises");
-  if (customExData) {
-    state.customExercises = JSON.parse(customExData);
+// Load user registry
+function loadAuthRegistry() {
+  const usersJson = localStorage.getItem("puretrack_users");
+  if (usersJson) {
+    state.users = JSON.parse(usersJson);
   }
 }
 
-// Save to Local Storage
+// Show Authentication Screen
+function showAuthScreen() {
+  document.getElementById("auth-screen").style.display = "flex";
+  document.getElementById("app-container").style.display = "none";
+  resetAuthForms();
+}
+
+// Show Main Dashboard
+function showDashboard() {
+  document.getElementById("auth-screen").style.display = "none";
+  document.getElementById("app-container").style.display = "block";
+  
+  // Render views with user data
+  renderProfile();
+  renderWelcomePanel();
+  renderActiveWorkout();
+  renderHistory();
+  populateChartSelectors();
+  
+  // Set date badge
+  document.getElementById("current-workout-date").textContent = formatFriendlyDate(state.activeWorkout.date);
+}
+
+// Login User & Load Data
+function loginUser(username) {
+  state.currentUser = username;
+  localStorage.setItem("puretrack_current_user", username);
+  
+  // Load specific user data
+  loadUserData(username);
+  showDashboard();
+}
+
+// Load user specific data
+function loadUserData(username) {
+  const dataJson = localStorage.getItem(`puretrack_userdata_${username}`);
+  if (dataJson) {
+    const data = JSON.parse(dataJson);
+    state.profile = data.profile || { name: username, age: "", weight: "", height: "", targetWeight: "", goal: "Strength Training" };
+    state.history = data.history || [];
+    state.activeWorkout = data.activeWorkout || { title: "Push Day", date: new Date().toISOString().split('T')[0], exercises: [] };
+    state.customExercises = data.customExercises || [];
+  } else {
+    // Initialize default profile
+    state.profile = {
+      name: username,
+      age: "",
+      weight: "",
+      height: "",
+      targetWeight: "",
+      goal: "Strength Training"
+    };
+    state.history = [];
+    state.activeWorkout = {
+      title: "Push Day",
+      date: new Date().toISOString().split('T')[0],
+      exercises: []
+    };
+    state.customExercises = [];
+  }
+}
+
+// Save user specific data
 function saveData() {
-  localStorage.setItem("puretrack_profile", JSON.stringify(state.profile));
-  localStorage.setItem("puretrack_history", JSON.stringify(state.history));
-  localStorage.setItem("puretrack_active", JSON.stringify(state.activeWorkout));
-  localStorage.setItem("puretrack_custom_exercises", JSON.stringify(state.customExercises));
+  if (!state.currentUser) return;
+  
+  const userData = {
+    profile: state.profile,
+    history: state.history,
+    activeWorkout: state.activeWorkout,
+    customExercises: state.customExercises
+  };
+  
+  localStorage.setItem(`puretrack_userdata_${state.currentUser}`, JSON.stringify(userData));
+}
+
+// Setup Authentication Form Events
+function setupAuthEvents() {
+  const tabLogin = document.getElementById("auth-tab-login");
+  const tabSignup = document.getElementById("auth-tab-signup");
+  const loginForm = document.getElementById("login-form");
+  const signupForm = document.getElementById("signup-form");
+
+  tabLogin.addEventListener("click", () => {
+    tabLogin.classList.add("active");
+    tabSignup.classList.remove("active");
+    loginForm.classList.add("active");
+    signupForm.classList.remove("active");
+    resetAuthForms();
+  });
+
+  tabSignup.addEventListener("click", () => {
+    tabSignup.classList.add("active");
+    tabLogin.classList.remove("active");
+    signupForm.classList.add("active");
+    loginForm.classList.remove("active");
+    resetAuthForms();
+  });
+
+  // Login Submit
+  loginForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const username = document.getElementById("login-username").value.trim().toLowerCase();
+    const password = document.getElementById("login-password").value;
+    const errorDiv = document.getElementById("login-error");
+
+    if (!state.users[username]) {
+      errorDiv.textContent = "Username does not exist. Please sign up.";
+      return;
+    }
+
+    if (state.users[username] !== password) {
+      errorDiv.textContent = "Incorrect password. Please try again.";
+      return;
+    }
+
+    errorDiv.textContent = "";
+    loginUser(username);
+  });
+
+  // Signup Submit
+  signupForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const username = document.getElementById("signup-username").value.trim().toLowerCase();
+    const password = document.getElementById("signup-password").value;
+    const confirmPassword = document.getElementById("signup-password-confirm").value;
+    const errorDiv = document.getElementById("signup-error");
+
+    if (username.length < 3) {
+      errorDiv.textContent = "Username must be at least 3 characters.";
+      return;
+    }
+
+    if (password.length < 4) {
+      errorDiv.textContent = "Password must be at least 4 characters.";
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      errorDiv.textContent = "Passwords do not match.";
+      return;
+    }
+
+    if (state.users[username]) {
+      errorDiv.textContent = "Username is already taken.";
+      return;
+    }
+
+    // Register user
+    state.users[username] = password;
+    localStorage.setItem("puretrack_users", JSON.stringify(state.users));
+    
+    errorDiv.textContent = "";
+    alert("Account created successfully!");
+    
+    // Automatically log in
+    loginUser(username);
+  });
+
+  // Logout Click
+  document.getElementById("btn-logout").addEventListener("click", () => {
+    if (confirm("Are you sure you want to log out?")) {
+      logout();
+    }
+  });
+}
+
+function resetAuthForms() {
+  document.getElementById("login-username").value = "";
+  document.getElementById("login-password").value = "";
+  document.getElementById("signup-username").value = "";
+  document.getElementById("signup-password").value = "";
+  document.getElementById("signup-password-confirm").value = "";
+  document.getElementById("login-error").textContent = "";
+  document.getElementById("signup-error").textContent = "";
+}
+
+function logout() {
+  state.currentUser = null;
+  localStorage.removeItem("puretrack_current_user");
+  activeChartData = null;
+  showAuthScreen();
 }
 
 // Reset Active Workout
@@ -151,7 +310,7 @@ function renderWelcomePanel() {
   const statStreak = document.getElementById("stat-streak");
   const statWeight = document.getElementById("stat-weight");
 
-  const name = state.profile.name || "Guest";
+  const name = state.profile.name || state.currentUser || "User";
   welcomeMessage.textContent = `Hello, ${name}!`;
   avatarName.textContent = name;
   avatarInitials.textContent = name.substring(0, 2).toUpperCase();
@@ -628,8 +787,6 @@ function saveActiveWorkout() {
   }
 
   // Filter out exercises with no sets, and filter sets to only completed ones?
-  // Let's ask or decide: let's include all sets, but check if user wants to log all.
-  // Actually, let's keep all sets so they are documented, but alert if there are uncompleted sets.
   const hasUncompleted = exercises.some(ex => ex.sets.some(s => !s.completed));
   if (hasUncompleted) {
     if (!confirm("Some sets are not checked as completed. Save them anyway?")) {
@@ -1043,11 +1200,10 @@ function drawProgressChart() {
       ctx.fill();
       ctx.stroke();
 
-      // Date Label (Draw every item if short list, or skip to avoid overlap)
+      // Date Label
       const shouldDrawDate = count <= 5 || idx === 0 || idx === count - 1 || idx === Math.floor(count / 2);
       if (shouldDrawDate) {
         ctx.fillStyle = "#64748b";
-        // Format MM/DD
         const dateParts = p.date.split('-');
         const shortDate = dateParts.length === 3 ? `${dateParts[1]}/${dateParts[2]}` : p.date;
         ctx.fillText(shortDate, pt.x, paddingTop + graphHeight + 8);
@@ -1073,7 +1229,7 @@ function renderProfile() {
   const summaryTargetDiff = document.getElementById("summary-target-diff");
   const summaryLastActive = document.getElementById("summary-last-active");
 
-  const name = state.profile.name || "Guest User";
+  const name = state.profile.name || state.currentUser || "User";
   summaryName.textContent = name;
   summaryGoal.textContent = state.profile.goal;
   summaryAvatar.textContent = name.substring(0, 2).toUpperCase();
