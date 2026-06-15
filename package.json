@@ -1,0 +1,13 @@
+{
+  "name": "yellow-workout-tracker",
+  "version": "1.0.0",
+  "description": "Minimalist workout tracker with clean yellow-and-white aesthetic.",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y http-server -p 8081"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

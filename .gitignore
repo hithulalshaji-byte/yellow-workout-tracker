@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+.env
+.system_generated/
+click_feedback/
+logs/
+artifacts/
+*.log
